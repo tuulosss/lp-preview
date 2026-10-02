@@ -32,7 +32,8 @@
   #scan { font-size:22px; padding:0 12px; }
   #cam { position:fixed; inset:0; z-index:9; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px; }
   #cam[hidden] { display:none; }
-  #cam video { width:100%; max-width:640px; max-height:65vh; object-fit:cover; border-radius:8px; }
+  /* Fixed box: height must not follow the stream size, which changes mid-stream (iOS rotation, 1080p switch). */
+  #cam video { width:100%; max-width:640px; height:65vh; object-fit:cover; border-radius:8px; background:#222; }
   #cam button { padding:12px 24px; }
   @media (max-width:480px) {
     .head { flex-direction:column; align-items:center; text-align:center; }
@@ -93,7 +94,7 @@ async function detector() {
 }
 
 let stream = null;
-function closeCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; $('cam').hidden = true; }
+function closeCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; $('video').srcObject = null; $('cam').hidden = true; }
 $('camClose').onclick = closeCam;
 
 $('scan').onclick = async () => {
