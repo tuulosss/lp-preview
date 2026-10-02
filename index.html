@@ -29,6 +29,11 @@
   li .n { width:24px; color:var(--muted); text-align:right; }
   li .t { flex:1; } li .d { color:var(--muted); }
   #msg { color:var(--muted); }
+  #scan { font-size:22px; padding:0 12px; }
+  #cam { position:fixed; inset:0; z-index:9; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px; }
+  #cam[hidden] { display:none; }
+  #cam video { width:100%; max-width:640px; max-height:65vh; object-fit:cover; border-radius:8px; }
+  #cam button { padding:12px 24px; }
   @media (max-width:480px) {
     .head { flex-direction:column; align-items:center; text-align:center; }
     .head img { width:min(70vw, 300px); height:auto; aspect-ratio:1; }
@@ -37,12 +42,13 @@
 </head>
 <body>
 <main>
-  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Albumi tai artisti…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button>Hae</button></form>
+  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Albumi tai artisti…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button type="button" id="scan" aria-label="Skannaa viivakoodi">📷</button><button>Hae</button></form>
   <p id="msg"></p>
   <div class="hits" id="hits"></div>
   <div id="album"></div>
   <audio id="player"></audio>
 </main>
+<div id="cam" hidden><video id="video" playsinline muted></video><p id="camMsg"></p><button id="camClose">Sulje</button></div>
 <script>
 // Deezer API has no CORS headers, so JSONP it is. No key, no backend.
 let n = 0;
@@ -76,6 +82,49 @@ $('f').onsubmit = async e => {
     showAlbum(data[0].id);
   } catch (err) { $('msg').textContent = 'Virhe: ' + (err.message || err); }
 };
+
+// --- Barcode scan. Native BarcodeDetector on Android Chrome; iOS Safari has none, so ZXing-wasm ponyfill.
+const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+async function detector() {
+  if ('BarcodeDetector' in window && (await BarcodeDetector.getSupportedFormats()).includes('ean_13'))
+    return new BarcodeDetector({ formats: FORMATS });
+  const m = await import('https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/es/ponyfill.js');
+  return new m.BarcodeDetector({ formats: FORMATS });
+}
+
+let stream = null;
+function closeCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; $('cam').hidden = true; }
+$('camClose').onclick = closeCam;
+
+$('scan').onclick = async () => {
+  const video = $('video');
+  $('cam').hidden = false; $('camMsg').textContent = 'Käynnistetään kamera…';
+  try {
+    const [det, s] = await Promise.all([detector(), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })]);
+    if ($('cam').hidden) return s.getTracks().forEach(t => t.stop()); // closed while starting
+    stream = s; video.srcObject = s; await video.play();
+    $('camMsg').textContent = 'Osoita takakannen viivakoodia';
+    while (stream) {
+      const [hit] = await det.detect(video).catch(() => []);
+      if (hit) { closeCam(); return lookupBarcode(hit.rawValue); }
+      await new Promise(r => setTimeout(r, 150));
+    }
+  } catch (err) { $('camMsg').textContent = 'Kamera ei käynnistynyt: ' + (err.message || err); }
+};
+
+async function lookupBarcode(code) {
+  $('msg').textContent = `Viivakoodi ${code}, haetaan…`; $('hits').innerHTML = ''; $('album').innerHTML = '';
+  const upc = code.replace(/^0(?=\d{12}$)/, ''); // EAN-13 "0…" == UPC-A
+  // Deezer only knows digital-release UPCs, but when it matches it's exact.
+  try { const a = await dz(`/album/upc:${upc}`); $('msg').textContent = ''; return showAlbum(a.id); } catch {}
+  // Vinyl barcodes: MusicBrainz (CORS ok, no key) → artist + title → normal search.
+  const r = await fetch(`https://musicbrainz.org/ws/2/release/?fmt=json&limit=1&query=${encodeURIComponent(`barcode:${code} OR barcode:${upc}`)}`)
+    .then(r => r.json()).catch(() => ({}));
+  const rel = r.releases?.[0];
+  if (!rel) return $('msg').textContent = `Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`;
+  $('q').value = `${rel['artist-credit'][0].name} ${rel.title}`;
+  $('f').requestSubmit();
+}
 
 // ?q=rumours opens a search directly (shareable link).
 const q0 = new URLSearchParams(location.search).get('q');
