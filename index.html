@@ -117,12 +117,18 @@ async function lookupBarcode(code) {
   const upc = code.replace(/^0(?=\d{12}$)/, ''); // EAN-13 "0…" == UPC-A
   // Deezer only knows digital-release UPCs, but when it matches it's exact.
   try { const a = await dz(`/album/upc:${upc}`); $('msg').textContent = ''; return showAlbum(a.id); } catch {}
-  // Vinyl barcodes: MusicBrainz (CORS ok, no key) → artist + title → normal search.
-  const r = await fetch(`https://musicbrainz.org/ws/2/release/?fmt=json&limit=1&query=${encodeURIComponent(`barcode:${code} OR barcode:${upc}`)}`)
-    .then(r => r.json()).catch(() => ({}));
-  const rel = r.releases?.[0];
-  if (!rel) return $('msg').textContent = `Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`;
-  $('q').value = `${rel['artist-credit'][0].name} ${rel.title}`;
+  // Vinyl barcodes → artist + title → normal search. Discogs has by far the best vinyl coverage
+  // (search works without a token, CORS ok); MusicBrainz as fallback.
+  const get = url => fetch(url).then(r => r.json()).catch(() => ({}));
+  const dc = (await get(`https://api.discogs.com/database/search?type=release&per_page=1&barcode=${code}`)).results?.[0];
+  // Discogs: "Nirvana (2) - Nevermind", "Artist*" → strip disambiguation marks
+  let q = dc?.title.replace(/ \(\d+\)|\*/g, '').replace(' - ', ' ');
+  if (!q) {
+    const mb = (await get(`https://musicbrainz.org/ws/2/release/?fmt=json&limit=1&query=${encodeURIComponent(`barcode:${code} OR barcode:${upc}`)}`)).releases?.[0];
+    q = mb && `${mb['artist-credit'][0].name} ${mb.title}`;
+  }
+  if (!q) return $('msg').textContent = `Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`;
+  $('q').value = q;
   $('f').requestSubmit();
 }
 
