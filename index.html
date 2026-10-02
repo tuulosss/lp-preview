@@ -100,7 +100,7 @@ $('scan').onclick = async () => {
   const video = $('video');
   $('cam').hidden = false; $('camMsg').textContent = 'Käynnistetään kamera…';
   try {
-    const [det, s] = await Promise.all([detector(), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })]);
+    const [det, s] = await Promise.all([detector(), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: 'continuous' } })]);
     if ($('cam').hidden) return s.getTracks().forEach(t => t.stop()); // closed while starting
     stream = s; video.srcObject = s; await video.play();
     $('camMsg').textContent = 'Osoita takakannen viivakoodia';
