@@ -2,35 +2,42 @@
 <html lang="fi">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e0245e">
 <title>LP Preview</title>
 <style>
   :root { color-scheme: light dark; --bg:#fff; --fg:#111; --muted:#777; --card:#f2f2f2; --accent:#e0245e; }
   @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1e1e1e; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
-  main { max-width:640px; margin:0 auto; padding:16px; }
-  form { display:flex; gap:8px; }
-  input { flex:1; font-size:18px; padding:12px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; -webkit-tap-highlight-color:transparent; }
+  main { max-width:640px; margin:0 auto; padding:0 16px calc(16px + env(safe-area-inset-bottom)); }
+  /* Search stays reachable while scrolling the tracklist. */
+  form { display:flex; gap:8px; position:sticky; top:0; z-index:1; background:var(--bg); padding:calc(12px + env(safe-area-inset-top)) 0 12px; }
+  input { flex:1; min-width:0; font-size:18px; padding:12px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); }
   button { font-size:16px; padding:0 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
   .hits { display:flex; gap:8px; overflow-x:auto; margin:12px 0; }
-  .hits img { width:72px; height:72px; border-radius:4px; cursor:pointer; opacity:.6; }
+  .hits { scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:3px; }
+  .hits img { width:72px; height:72px; flex:none; scroll-snap-align:start; border-radius:4px; cursor:pointer; opacity:.6; }
   .hits img.on { opacity:1; outline:3px solid var(--accent); }
   .head { display:flex; gap:16px; align-items:end; margin:16px 0; }
   .head img { width:160px; height:160px; border-radius:6px; }
-  .head h2 { margin:0 0 4px; } .head p { margin:0 0 8px; color:var(--muted); }
+  .head h2 { margin:0 0 4px; overflow-wrap:anywhere; } .head p { margin:0 0 8px; color:var(--muted); }
   .head a { color:var(--accent); }
   ol { list-style:none; padding:0; margin:0; }
-  li { display:flex; align-items:center; gap:12px; padding:10px; border-radius:8px; cursor:pointer; }
+  li { display:flex; align-items:center; gap:12px; padding:14px 10px; user-select:none; border-radius:8px; cursor:pointer; }
   li:hover, li.on { background:var(--card); }
   li.on .t { color:var(--accent); font-weight:600; }
   li .n { width:24px; color:var(--muted); text-align:right; }
   li .t { flex:1; } li .d { color:var(--muted); }
   #msg { color:var(--muted); }
+  @media (max-width:480px) {
+    .head { flex-direction:column; align-items:center; text-align:center; }
+    .head img { width:min(70vw, 300px); height:auto; aspect-ratio:1; }
+  }
 </style>
 </head>
 <body>
 <main>
-  <form id="f"><input id="q" placeholder="Albumi tai artisti…" autofocus autocomplete="off"><button>Hae</button></form>
+  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Albumi tai artisti…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button>Hae</button></form>
   <p id="msg"></p>
   <div class="hits" id="hits"></div>
   <div id="album"></div>
@@ -59,6 +66,7 @@ $('f').onsubmit = async e => {
   e.preventDefault();
   const q = $('q').value.trim();
   if (!q) return;
+  $('q').blur();
   $('msg').textContent = 'Haetaan…'; $('hits').innerHTML = ''; $('album').innerHTML = '';
   try {
     const { data } = await dz(`/search/album?q=${encodeURIComponent(q)}&limit=8`);
@@ -68,6 +76,10 @@ $('f').onsubmit = async e => {
     showAlbum(data[0].id);
   } catch (err) { $('msg').textContent = 'Virhe: ' + (err.message || err); }
 };
+
+// ?q=rumours opens a search directly (shareable link).
+const q0 = new URLSearchParams(location.search).get('q');
+if (q0) { $('q').value = q0; $('f').requestSubmit(); }
 
 $('hits').onclick = e => e.target.dataset.id && showAlbum(e.target.dataset.id);
 
