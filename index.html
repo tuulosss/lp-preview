@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LP Preview</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --muted:#777; --card:#f2f2f2; --accent:#e0245e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1e1e1e; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  form { display:flex; gap:8px; }
+  input { flex:1; font-size:18px; padding:12px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); }
+  button { font-size:16px; padding:0 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  .hits { display:flex; gap:8px; overflow-x:auto; margin:12px 0; }
+  .hits img { width:72px; height:72px; border-radius:4px; cursor:pointer; opacity:.6; }
+  .hits img.on { opacity:1; outline:3px solid var(--accent); }
+  .head { display:flex; gap:16px; align-items:end; margin:16px 0; }
+  .head img { width:160px; height:160px; border-radius:6px; }
+  .head h2 { margin:0 0 4px; } .head p { margin:0 0 8px; color:var(--muted); }
+  .head a { color:var(--accent); }
+  ol { list-style:none; padding:0; margin:0; }
+  li { display:flex; align-items:center; gap:12px; padding:10px; border-radius:8px; cursor:pointer; }
+  li:hover, li.on { background:var(--card); }
+  li.on .t { color:var(--accent); font-weight:600; }
+  li .n { width:24px; color:var(--muted); text-align:right; }
+  li .t { flex:1; } li .d { color:var(--muted); }
+  #msg { color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <form id="f"><input id="q" placeholder="Albumi tai artisti…" autofocus autocomplete="off"><button>Hae</button></form>
+  <p id="msg"></p>
+  <div class="hits" id="hits"></div>
+  <div id="album"></div>
+  <audio id="player"></audio>
+</main>
+<script>
+// Deezer API has no CORS headers, so JSONP it is. No key, no backend.
+let n = 0;
+function dz(path) {
+  return new Promise((ok, fail) => {
+    const cb = 'dz' + n++, s = document.createElement('script');
+    window[cb] = d => { delete window[cb]; s.remove(); d.error ? fail(d.error) : ok(d); };
+    s.onerror = () => { delete window[cb]; s.remove(); fail('verkkovirhe'); };
+    s.src = `https://api.deezer.com${path}${path.includes('?') ? '&' : '?'}output=jsonp&callback=${cb}`;
+    document.head.append(s);
+  });
+}
+
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const player = $('player');
+let tracks = [], cur = -1;
+
+$('f').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('msg').textContent = 'Haetaan…'; $('hits').innerHTML = ''; $('album').innerHTML = '';
+  try {
+    const { data } = await dz(`/search/album?q=${encodeURIComponent(q)}&limit=8`);
+    if (!data.length) return $('msg').textContent = 'Ei löytynyt.';
+    $('msg').textContent = '';
+    $('hits').innerHTML = data.map(a => `<img src="${a.cover_medium}" title="${esc(a.artist.name + ' – ' + a.title)}" data-id="${a.id}">`).join('');
+    showAlbum(data[0].id);
+  } catch (err) { $('msg').textContent = 'Virhe: ' + (err.message || err); }
+};
+
+$('hits').onclick = e => e.target.dataset.id && showAlbum(e.target.dataset.id);
+
+async function showAlbum(id) {
+  for (const img of $('hits').children) img.classList.toggle('on', img.dataset.id == id);
+  player.pause(); cur = -1;
+  const a = await dz(`/album/${id}`);
+  tracks = a.tracks.data.filter(t => t.preview);
+  const spotify = 'https://open.spotify.com/search/' + encodeURIComponent(`${a.artist.name} ${a.title}`);
+  $('album').innerHTML = `
+    <div class="head"><img src="${a.cover_big}"><div>
+      <h2>${esc(a.title)}</h2><p>${esc(a.artist.name)} · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} kpl</p>
+      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a></div></div>
+    <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
+  $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
+}
+
+function play(i) {
+  if (i === cur && !player.paused) { player.pause(); return; }
+  if (i !== cur) { cur = i; player.src = tracks[i].preview; }
+  player.play();
+  document.querySelectorAll('li').forEach(li => li.classList.toggle('on', +li.dataset.i === i));
+}
+// Auto-advance: whole album as a 30 s/track sampler.
+player.onended = () => cur + 1 < tracks.length && play(cur + 1);
+</script>
+</body>
+</html>
