@@ -29,7 +29,13 @@
   li .n { width:24px; color:var(--muted); text-align:right; }
   li .t { flex:1; } li .d { color:var(--muted); }
   #msg { color:var(--muted); }
-  #scan { font-size:22px; padding:0 12px; }
+  #scan, #savedBtn { font-size:22px; padding:0 12px; }
+  #savedBtn span { font-size:14px; }
+  .head button { margin-top:10px; padding:8px 14px; }
+  .saved { list-style:none; padding:0; margin:0; }
+  .saved img { width:48px; height:48px; border-radius:4px; }
+  .saved a { font-size:20px; text-decoration:none; }
+  .saved button { background:none; color:var(--muted); font-size:18px; padding:8px; }
   #cam { position:fixed; inset:0; z-index:9; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px; }
   #cam[hidden] { display:none; }
   /* Fixed box: height must not follow the stream size, which changes mid-stream (iOS rotation, 1080p switch). */
@@ -43,7 +49,7 @@
 </head>
 <body>
 <main>
-  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Albumi tai artisti…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button type="button" id="scan" aria-label="Skannaa viivakoodi">📷</button><button>Hae</button></form>
+  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Hae levyä…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button type="button" id="scan" aria-label="Skannaa viivakoodi">📷</button><button type="button" id="savedBtn" aria-label="Tallennetut levyt">📋<span id="savedN"></span></button><button>Hae</button></form>
   <p id="msg"></p>
   <div class="hits" id="hits"></div>
   <div id="album"></div>
@@ -136,6 +142,50 @@ async function lookupBarcode(code) {
   search(q, dc?.uri);
 }
 
+// --- Saved records, in this browser only.
+// ponytail: localStorage; iOS Safari can wipe it after ~7 days unused unless the page is added to the home screen. Export/sync if that bites.
+const load = () => { try { return JSON.parse(localStorage.lpSaved || '[]'); } catch { return []; } };
+function store(list) {
+  try { localStorage.lpSaved = JSON.stringify(list); } catch { alert('Tallennus epäonnistui (yksityinen selaus?)'); }
+  $('savedN').textContent = list.length || '';
+}
+store(load());
+
+async function saveAlbum(a) {
+  const price = prompt(`Hinta kaupassa (€): ${a.artist.name} – ${a.title}`, '');
+  if (price === null) return;
+  const btn = $('save'), discogs = $('discogs');
+  btn.disabled = true; btn.textContent = 'Haetaan sijaintia…';
+  const pos = await new Promise(ok => navigator.geolocation
+    ? navigator.geolocation.getCurrentPosition(p => ok(p.coords), () => ok(null), { timeout: 10000, maximumAge: 60000 })
+    : ok(null));
+  const list = load();
+  list.unshift({ id: a.id, title: a.title, artist: a.artist.name, cover: a.cover_medium, price: price.replace(/[€\s]/g, ''),
+    discogs: discogs.href, lat: pos?.latitude, lng: pos?.longitude, date: new Date().toISOString() });
+  store(list);
+  btn.textContent = pos ? '✓ Tallennettu' : '✓ Tallennettu (ilman sijaintia)';
+}
+
+$('savedBtn').onclick = showSaved;
+function showSaved() {
+  const list = load();
+  player.pause(); cur = -1; $('hits').innerHTML = '';
+  $('msg').textContent = list.length ? '' : 'Ei tallennettuja levyjä.';
+  $('album').innerHTML = `<h2>Tallennetut levyt</h2><ul class="saved">${list.map((r, i) => `<li data-i="${i}">
+    <img src="${r.cover}"><span class="t"><b>${esc(r.title)}</b><br><small>${esc(r.artist)}${r.price ? ` · ${esc(r.price)} €` : ''} · ${new Date(r.date).toLocaleDateString('fi-FI')}</small></span>
+    ${r.lat != null ? `<a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" aria-label="Sijainti kartalla">📍</a>` : ''}
+    <button data-del="${i}" aria-label="Poista">✕</button></li>`).join('')}</ul>`;
+  $('album').querySelector('ul').onclick = e => {
+    if (e.target.closest('a')) return;
+    if (e.target.dataset.del != null) {
+      if (confirm('Poistetaanko levy listalta?')) { list.splice(+e.target.dataset.del, 1); store(list); showSaved(); }
+      return;
+    }
+    const li = e.target.closest('li');
+    if (li) showAlbum(list[li.dataset.i].id);
+  };
+}
+
 // ?q=rumours opens a search directly (shareable link).
 const q0 = new URLSearchParams(location.search).get('q');
 if (q0) { $('q').value = q0; search(q0); }
@@ -153,9 +203,10 @@ async function showAlbum(id, release) {
   $('album').innerHTML = `
     <div class="head"><img src="${a.cover_big}"><div>
       <h2>${esc(a.title)}</h2><p>${esc(a.artist.name)} · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} kpl</p>
-      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a> · <a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a></div></div>
+      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a> · <a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a><br><button id="save">💾 Tallenna</button></div></div>
     <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
   $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
+  $('save').onclick = () => saveAlbum(a);
   // No scanned pressing: link the master page (all pressings + marketplace) instead of a search, if Discogs finds one.
   const link = $('discogs'); // grab now: a newer album may replace it while we wait
   if (!release) {
