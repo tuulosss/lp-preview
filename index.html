@@ -120,7 +120,8 @@ async function lookupBarcode(code) {
   $('msg').textContent = `Viivakoodi ${code}, haetaan…`; $('hits').innerHTML = ''; $('album').innerHTML = '';
   const upc = code.replace(/^0(?=\d{12}$)/, ''); // EAN-13 "0…" == UPC-A
   // Discogs has by far the best vinyl barcode coverage (no token needed, CORS ok) and gives the exact pressing.
-  const dc = (await get(`https://api.discogs.com/database/search?type=release&per_page=1&barcode=${code}`)).results?.[0];
+  const hits = (await get(`https://api.discogs.com/database/search?type=release&per_page=10&barcode=${code}`)).results || [];
+  const dc = hits.find(r => r.format?.includes('Vinyl')) || hits[0]; // prefer the LP if a CD shares the barcode
   // Deezer only knows digital-release UPCs, but when it matches it's exact.
   try { const a = await dz(`/album/upc:${upc}`); $('msg').textContent = ''; return showAlbum(a.id, dc?.uri); } catch {}
   // Otherwise artist + title → normal search, MusicBrainz as fallback.
@@ -156,10 +157,16 @@ async function showAlbum(id, release) {
     <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
   $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
   // No scanned pressing: link the master page (all pressings + marketplace) instead of a search, if Discogs finds one.
+  const link = $('discogs'); // grab now: a newer album may replace it while we wait
   if (!release) {
-    const link = $('discogs'); // grab now: a newer album may replace it while we wait
     const m = (await get(`https://api.discogs.com/database/search?type=master&per_page=1&artist=${encodeURIComponent(a.artist.name)}&release_title=${encodeURIComponent(title)}`)).results?.[0];
     if (m) link.href = 'https://www.discogs.com' + m.uri;
+  } else {
+    // Price only for the exact scanned pressing; a master's lowest price mixes in CDs etc. and misleads.
+    const st = await get(`https://api.discogs.com/marketplace/stats/${release.match(/\d+/)[0]}?curr_abbr=EUR`);
+    if (st.num_for_sale != null) link.textContent = st.lowest_price
+      ? `Discogs: ${st.num_for_sale} myynnissä, alkaen ${st.lowest_price.value.toLocaleString('fi-FI', { style: 'currency', currency: st.lowest_price.currency })} ↗`
+      : 'Discogs: ei myynnissä ↗';
   }
 }
 
