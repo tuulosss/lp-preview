@@ -69,9 +69,10 @@ const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const player = $('player');
 let tracks = [], cur = -1;
 
-$('f').onsubmit = async e => {
-  e.preventDefault();
-  const q = $('q').value.trim();
+$('f').onsubmit = e => { e.preventDefault(); search($('q').value.trim()); };
+
+// release: exact Discogs release path when we came from a barcode scan.
+async function search(q, release) {
   if (!q) return;
   $('q').blur();
   $('msg').textContent = 'Haetaan…'; $('hits').innerHTML = ''; $('album').innerHTML = '';
@@ -80,9 +81,9 @@ $('f').onsubmit = async e => {
     if (!data.length) return $('msg').textContent = 'Ei löytynyt.';
     $('msg').textContent = '';
     $('hits').innerHTML = data.map(a => `<img src="${a.cover_medium}" title="${esc(a.artist.name + ' – ' + a.title)}" data-id="${a.id}">`).join('');
-    showAlbum(data[0].id);
+    showAlbum(data[0].id, release);
   } catch (err) { $('msg').textContent = 'Virhe: ' + (err.message || err); }
-};
+}
 
 // --- Barcode scan. Native BarcodeDetector on Android Chrome; iOS Safari has none, so ZXing-wasm ponyfill.
 const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
@@ -113,15 +114,16 @@ $('scan').onclick = async () => {
   } catch (err) { $('camMsg').textContent = 'Kamera ei käynnistynyt: ' + (err.message || err); }
 };
 
+const get = url => fetch(url).then(r => r.json()).catch(() => ({}));
+
 async function lookupBarcode(code) {
   $('msg').textContent = `Viivakoodi ${code}, haetaan…`; $('hits').innerHTML = ''; $('album').innerHTML = '';
   const upc = code.replace(/^0(?=\d{12}$)/, ''); // EAN-13 "0…" == UPC-A
-  // Deezer only knows digital-release UPCs, but when it matches it's exact.
-  try { const a = await dz(`/album/upc:${upc}`); $('msg').textContent = ''; return showAlbum(a.id); } catch {}
-  // Vinyl barcodes → artist + title → normal search. Discogs has by far the best vinyl coverage
-  // (search works without a token, CORS ok); MusicBrainz as fallback.
-  const get = url => fetch(url).then(r => r.json()).catch(() => ({}));
+  // Discogs has by far the best vinyl barcode coverage (no token needed, CORS ok) and gives the exact pressing.
   const dc = (await get(`https://api.discogs.com/database/search?type=release&per_page=1&barcode=${code}`)).results?.[0];
+  // Deezer only knows digital-release UPCs, but when it matches it's exact.
+  try { const a = await dz(`/album/upc:${upc}`); $('msg').textContent = ''; return showAlbum(a.id, dc?.uri); } catch {}
+  // Otherwise artist + title → normal search, MusicBrainz as fallback.
   // Discogs: "Nirvana (2) - Nevermind", "Artist*" → strip disambiguation marks
   let q = dc?.title.replace(/ \(\d+\)|\*/g, '').replace(' - ', ' ');
   if (!q) {
@@ -130,27 +132,35 @@ async function lookupBarcode(code) {
   }
   if (!q) return $('msg').textContent = `Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`;
   $('q').value = q;
-  $('f').requestSubmit();
+  search(q, dc?.uri);
 }
 
 // ?q=rumours opens a search directly (shareable link).
 const q0 = new URLSearchParams(location.search).get('q');
-if (q0) { $('q').value = q0; $('f').requestSubmit(); }
+if (q0) { $('q').value = q0; search(q0); }
 
 $('hits').onclick = e => e.target.dataset.id && showAlbum(e.target.dataset.id);
 
-async function showAlbum(id) {
+async function showAlbum(id, release) {
   for (const img of $('hits').children) img.classList.toggle('on', img.dataset.id == id);
   player.pause(); cur = -1;
   const a = await dz(`/album/${id}`);
   tracks = a.tracks.data.filter(t => t.preview);
   const spotify = 'https://open.spotify.com/search/' + encodeURIComponent(`${a.artist.name} ${a.title}`);
+  const title = a.title.replace(/\s*[([].*$/, ''); // "Rumours (Super Deluxe)" → "Rumours"
+  const discogs = 'https://www.discogs.com' + (release || '/search/?type=all&q=' + encodeURIComponent(`${a.artist.name} ${title}`));
   $('album').innerHTML = `
     <div class="head"><img src="${a.cover_big}"><div>
       <h2>${esc(a.title)}</h2><p>${esc(a.artist.name)} · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} kpl</p>
-      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a></div></div>
+      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a> · <a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a></div></div>
     <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
   $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
+  // No scanned pressing: link the master page (all pressings + marketplace) instead of a search, if Discogs finds one.
+  if (!release) {
+    const link = $('discogs'); // grab now: a newer album may replace it while we wait
+    const m = (await get(`https://api.discogs.com/database/search?type=master&per_page=1&artist=${encodeURIComponent(a.artist.name)}&release_title=${encodeURIComponent(title)}`)).results?.[0];
+    if (m) link.href = 'https://www.discogs.com' + m.uri;
+  }
 }
 
 function play(i) {
