@@ -3,48 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#e0245e">
+<meta name="theme-color" content="#121212">
 <title>LP Preview</title>
 <style>
-  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --muted:#777; --card:#f2f2f2; --accent:#e0245e; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#111; --fg:#eee; --muted:#999; --card:#1e1e1e; } }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui, sans-serif; -webkit-tap-highlight-color:transparent; }
+  /* Spotify-ish: always dark, green accent, pill buttons, one colour per action. */
+  :root { color-scheme: dark; --bg:#121212; --fg:#fff; --muted:#b3b3b3; --card:#1f1f1f; --hover:#2a2a2a; --accent:#1ed760;
+    --blue:#509bf5; --purple:#b49bc8; --orange:#ffa42b; --pink:#f573a0; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 "Circular Std", -apple-system, "Helvetica Neue", system-ui, sans-serif; -webkit-tap-highlight-color:transparent; }
   main { max-width:640px; margin:0 auto; padding:0 16px calc(16px + env(safe-area-inset-bottom)); }
   /* Search stays reachable while scrolling the tracklist. */
-  form { display:flex; gap:8px; position:sticky; top:0; z-index:1; background:var(--bg); padding:calc(12px + env(safe-area-inset-top)) 0 12px; }
-  input { flex:1; min-width:0; font-size:18px; padding:12px; border-radius:8px; border:1px solid var(--muted); background:var(--card); color:var(--fg); }
-  button { font-size:16px; padding:0 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
-  .hits { display:flex; gap:8px; overflow-x:auto; margin:12px 0; }
+  form { display:flex; gap:8px; position:sticky; top:0; z-index:1; background:rgb(18 18 18 / .92); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); padding:calc(12px + env(safe-area-inset-top)) 0 12px; }
+  input { flex:1; min-width:0; font-size:17px; padding:12px 18px; border-radius:500px; border:2px solid transparent; background:var(--card); color:var(--fg); outline:none; transition:border-color .15s, background .15s; }
+  input:hover { background:var(--hover); } input:focus { border-color:var(--fg); }
+  input::placeholder { color:var(--muted); }
+  button, #pick { font:inherit; font-size:15px; font-weight:700; padding:0 18px; border:0; border-radius:500px; background:var(--accent); color:#000; cursor:pointer; transition:transform .1s, filter .15s; }
+  button:hover, #pick:hover { transform:scale(1.04); filter:brightness(1.1); }
+  button:active, #pick:active { transform:scale(.97); }
+  button:disabled { opacity:.6; transform:none; cursor:default; }
+  #scan, #savedBtn, #pick { font-size:20px; padding:0 13px; min-width:46px; }
+  #scan { background:var(--blue); }
+  #pick { display:flex; align-items:center; justify-content:center; background:var(--purple); }
+  #savedBtn { background:var(--orange); }
+  #savedBtn span { font-size:13px; margin-left:2px; }
+  .hits { display:flex; gap:10px; overflow-x:auto; margin:12px 0; }
   .hits { scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:3px; }
-  .hits img { width:72px; height:72px; flex:none; scroll-snap-align:start; border-radius:4px; cursor:pointer; opacity:.6; }
-  .hits img.on { opacity:1; outline:3px solid var(--accent); }
-  .head { display:flex; gap:16px; align-items:end; margin:16px 0; }
-  .head img { width:160px; height:160px; border-radius:6px; }
-  .head h2 { margin:0 0 4px; overflow-wrap:anywhere; } .head p { margin:0 0 8px; color:var(--muted); }
-  .head a { color:var(--accent); }
+  .hits img { width:76px; height:76px; flex:none; scroll-snap-align:start; border-radius:6px; cursor:pointer; opacity:.5; transition:opacity .15s; box-shadow:0 4px 12px rgb(0 0 0 / .5); }
+  .hits img:hover { opacity:.85; }
+  .hits img.on { opacity:1; outline:3px solid var(--accent); outline-offset:2px; }
+  .head { display:flex; gap:20px; align-items:end; margin:16px 0; padding:20px; border-radius:12px; background:linear-gradient(180deg, #3d3d3d, var(--card)); }
+  .head img { width:168px; height:168px; border-radius:6px; box-shadow:0 8px 24px rgb(0 0 0 / .6); }
+  .head h2 { margin:0 0 6px; font-size:28px; font-weight:800; letter-spacing:-.02em; line-height:1.15; overflow-wrap:anywhere; }
+  .head p { margin:0 0 14px; color:var(--muted); font-size:14px; }
+  .acts { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .acts a { color:var(--fg); text-decoration:none; font-size:13px; font-weight:700; padding:7px 14px; border:1px solid #727272; border-radius:500px; transition:border-color .15s, transform .1s; }
+  .acts a:hover { border-color:var(--fg); transform:scale(1.04); }
+  #save { padding:8px 16px; font-size:14px; background:var(--pink); }
+  h2 { font-weight:800; letter-spacing:-.02em; }
   ol { list-style:none; padding:0; margin:0; }
-  li { display:flex; align-items:center; gap:12px; padding:14px 10px; user-select:none; border-radius:8px; cursor:pointer; }
-  li:hover, li.on { background:var(--card); }
-  li.on .t { color:var(--accent); font-weight:600; }
-  li .n { width:24px; color:var(--muted); text-align:right; }
-  li .t { flex:1; } li .d { color:var(--muted); }
+  li { display:flex; align-items:center; gap:14px; padding:12px; user-select:none; border-radius:6px; cursor:pointer; transition:background .1s; }
+  li:hover { background:var(--hover); } li.on { background:var(--card); }
+  li.on .t, li.on .n { color:var(--accent); font-weight:700; }
+  li .n { width:24px; color:var(--muted); text-align:right; font-variant-numeric:tabular-nums; }
+  li .t { flex:1; } li .d { color:var(--muted); font-size:14px; font-variant-numeric:tabular-nums; }
   #msg { color:var(--muted); }
-  #scan, #savedBtn, #pick { font-size:22px; padding:0 12px; }
-  #pick { display:flex; align-items:center; border-radius:8px; background:var(--accent); cursor:pointer; }
-  #savedBtn span { font-size:14px; }
-  .head button { margin-top:10px; padding:8px 14px; }
   .saved { list-style:none; padding:0; margin:0; }
-  .saved img { width:48px; height:48px; border-radius:4px; }
+  .saved img { width:52px; height:52px; border-radius:4px; }
+  .saved small { color:var(--muted); }
   .saved a { font-size:20px; text-decoration:none; }
   .saved button { background:none; color:var(--muted); font-size:18px; padding:8px; }
+  .saved button:hover { color:var(--fg); }
   #cam { position:fixed; inset:0; z-index:9; background:#000; color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px; }
   #cam[hidden] { display:none; }
   /* Fixed box: height must not follow the stream size, which changes mid-stream (iOS rotation, 1080p switch). */
-  #cam video { width:100%; max-width:640px; height:65vh; object-fit:cover; border-radius:8px; background:#222; }
-  #cam button { padding:12px 24px; }
+  #cam video { width:100%; max-width:640px; height:65vh; object-fit:cover; border-radius:12px; background:#222; }
+  #cam button { padding:12px 32px; background:var(--fg); }
   @media (max-width:480px) {
     .head { flex-direction:column; align-items:center; text-align:center; }
     .head img { width:min(70vw, 300px); height:auto; aspect-ratio:1; }
+    .acts { justify-content:center; }
   }
 </style>
 </head>
@@ -215,7 +231,7 @@ async function showAlbum(id, release) {
   $('album').innerHTML = `
     <div class="head"><img src="${a.cover_big}"><div>
       <h2>${esc(a.title)}</h2><p>${esc(a.artist.name)} · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} kpl</p>
-      <a href="${spotify}" target="_blank">Avaa Spotifyssa ↗</a> · <a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a><br><button id="save">💾 Tallenna</button></div></div>
+      <div class="acts"><a href="${spotify}" target="_blank">Spotify ↗</a><a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a><button id="save">💾 Tallenna</button></div></div></div>
     <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}</span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
   $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
   $('save').onclick = () => saveAlbum(a);
