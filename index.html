@@ -79,7 +79,7 @@
 </head>
 <body>
 <main>
-  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Mitä haluat kuunnella?" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button>Hae</button></form>
+  <form id="f"><input id="q" type="search" enterkeyhint="search" placeholder="Mitä haluat kuunnella?" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"><button data-en="Search">Hae</button></form>
   <p id="msg"></p>
   <div class="hits" id="hits"></div>
   <div id="album"></div>
@@ -98,10 +98,19 @@
   <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"/></symbol>
 </defs></svg>
 <div id="np" hidden><img id="npImg" alt=""><div><b id="npTitle"></b><small id="npArtist"></small></div><button id="npBtn" aria-label="Toista / tauko"><svg class="i"><use href="#i-play"/></svg></button><span id="npBar"><i></i></span></div>
-<nav><button type="button" id="navSearch"><svg class="i"><use href="#i-search"/></svg>Haku</button><button type="button" id="scan"><svg class="i"><use href="#i-scan"/></svg>Skannaa</button><label id="pick"><svg class="i"><use href="#i-image"/></svg>Kuvasta<input id="file" type="file" accept="image/*" hidden></label><button type="button" id="savedBtn"><svg class="i"><use href="#i-library"/></svg><span>Kirjasto <span id="savedN"></span></span></button></nav>
-<div id="cam" hidden><video id="video" playsinline muted></video><p id="camMsg"></p><button id="camClose">Sulje</button></div>
+<nav><button type="button" id="navSearch" data-en="Search"><svg class="i"><use href="#i-search"/></svg>Haku</button><button type="button" id="scan" data-en="Scan"><svg class="i"><use href="#i-scan"/></svg>Skannaa</button><label id="pick" data-en="Photo"><svg class="i"><use href="#i-image"/></svg>Kuvasta<input id="file" type="file" accept="image/*" hidden></label><button type="button" id="savedBtn"><svg class="i"><use href="#i-library"/></svg><span data-en="Library ">Kirjasto <span id="savedN"></span></span></button></nav>
+<div id="cam" hidden><video id="video" playsinline muted></video><p id="camMsg"></p><button id="camClose" data-en="Close">Sulje</button></div>
 <script>
 // Deezer API has no CORS headers, so JSONP it is. No key, no backend.
+// Finnish for fi browsers, English for everyone else.
+const fi = navigator.language.startsWith('fi'), L = (f, e) => fi ? f : e;
+if (!fi) {
+  document.documentElement.lang = 'en';
+  document.getElementById('q').placeholder = 'What do you want to listen to?';
+  document.getElementById('npBtn').ariaLabel = 'Play / pause';
+  for (const el of document.querySelectorAll('[data-en]')) [...el.childNodes].find(c => c.nodeType === 3 && c.data.trim()).data = el.dataset.en;
+}
+
 let n = 0;
 function dz(path) {
   return new Promise((ok, fail) => {
@@ -126,14 +135,14 @@ $('f').onsubmit = e => { e.preventDefault(); search($('q').value.trim()); };
 async function search(q, release) {
   if (!q) return;
   $('q').blur();
-  $('msg').textContent = 'Haetaan…'; $('hits').innerHTML = ''; $('album').innerHTML = '';
+  $('msg').textContent = L('Haetaan…', 'Searching…'); $('hits').innerHTML = ''; $('album').innerHTML = '';
   try {
     const { data } = await dz(`/search/album?q=${encodeURIComponent(q)}&limit=8`);
-    if (!data.length) return $('msg').textContent = 'Ei löytynyt.';
+    if (!data.length) return discogsOnly(q);
     $('msg').textContent = '';
     $('hits').innerHTML = data.map(a => `<img src="${a.cover_medium}" title="${esc(a.artist.name + ' – ' + a.title)}" data-id="${a.id}">`).join('');
     showAlbum(data[0].id, release);
-  } catch (err) { $('msg').textContent = 'Virhe: ' + (err.message || err); }
+  } catch (err) { $('msg').textContent = L('Virhe: ', 'Error: ') + (err.message || err); }
 }
 
 // --- Barcode scan. Native BarcodeDetector on Android Chrome; iOS Safari has none, so ZXing-wasm ponyfill.
@@ -151,35 +160,35 @@ $('camClose').onclick = closeCam;
 
 $('scan').onclick = async () => {
   const video = $('video');
-  $('cam').hidden = false; $('camMsg').textContent = 'Käynnistetään kamera…';
+  $('cam').hidden = false; $('camMsg').textContent = L('Käynnistetään kamera…', 'Starting camera…');
   try {
     const [det, s] = await Promise.all([detector(), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 }, focusMode: 'continuous' } })]);
     if ($('cam').hidden) return s.getTracks().forEach(t => t.stop()); // closed while starting
     stream = s; video.srcObject = s; await video.play();
-    $('camMsg').textContent = 'Osoita takakannen viivakoodia';
+    $('camMsg').textContent = L('Osoita takakannen viivakoodia', 'Point at the barcode on the back cover');
     while (stream) {
       const [hit] = await det.detect(video).catch(() => []);
       if (hit) { closeCam(); return lookupBarcode(hit.rawValue); }
       await new Promise(r => setTimeout(r, 150));
     }
-  } catch (err) { $('camMsg').textContent = 'Kamera ei käynnistynyt: ' + (err.message || err); }
+  } catch (err) { $('camMsg').textContent = L('Kamera ei käynnistynyt: ', 'Camera failed to start: ') + (err.message || err); }
 };
 
 // Barcode from an existing photo (gallery). Both native and ponyfill detectors accept a Blob directly.
 $('file').onchange = async e => {
   const file = e.target.files[0]; e.target.value = ''; // allow picking the same photo again
   if (!file) return;
-  $('msg').textContent = 'Luetaan viivakoodia kuvasta…'; $('hits').innerHTML = ''; $('album').innerHTML = '';
+  $('msg').textContent = L('Luetaan viivakoodia kuvasta…', 'Reading barcode from photo…'); $('hits').innerHTML = ''; $('album').innerHTML = '';
   try {
     const [hit] = await (await detector()).detect(file);
-    hit ? lookupBarcode(hit.rawValue) : $('msg').textContent = 'Kuvasta ei löytynyt viivakoodia. Kokeile tarkempaa tai rajatumpaa kuvaa.';
-  } catch (err) { $('msg').textContent = 'Kuvan luku epäonnistui: ' + (err.message || err); }
+    hit ? lookupBarcode(hit.rawValue) : $('msg').textContent = L('Kuvasta ei löytynyt viivakoodia. Kokeile tarkempaa tai rajatumpaa kuvaa.', 'No barcode found in the photo. Try a sharper or tighter crop.');
+  } catch (err) { $('msg').textContent = L('Kuvan luku epäonnistui: ', 'Could not read the photo: ') + (err.message || err); }
 };
 
 const get = url => fetch(url).then(r => r.json()).catch(() => ({}));
 
 async function lookupBarcode(code) {
-  $('msg').textContent = `Viivakoodi ${code}, haetaan…`; $('hits').innerHTML = ''; $('album').innerHTML = '';
+  $('msg').textContent = L(`Viivakoodi ${code}, haetaan…`, `Barcode ${code}, searching…`); $('hits').innerHTML = ''; $('album').innerHTML = '';
   const upc = code.replace(/^0(?=\d{12}$)/, ''); // EAN-13 "0…" == UPC-A
   // Discogs has by far the best vinyl barcode coverage (no token needed, CORS ok) and gives the exact pressing.
   const hits = (await get(`https://api.discogs.com/database/search?type=release&per_page=10&barcode=${code}`)).results || [];
@@ -193,7 +202,7 @@ async function lookupBarcode(code) {
     const mb = (await get(`https://musicbrainz.org/ws/2/release/?fmt=json&limit=1&query=${encodeURIComponent(`barcode:${code} OR barcode:${upc}`)}`)).releases?.[0];
     q = mb && `${mb['artist-credit'][0].name} ${mb.title}`;
   }
-  if (!q) return $('msg').textContent = `Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`;
+  if (!q) return $('msg').textContent = L(`Viivakoodia ${code} ei tunnistettu, kirjoita nimi käsin.`, `Barcode ${code} not recognised, type the name instead.`);
   $('q').value = q;
   search(q, dc?.uri);
 }
@@ -202,16 +211,16 @@ async function lookupBarcode(code) {
 // ponytail: localStorage; iOS Safari can wipe it after ~7 days unused unless the page is added to the home screen. Export/sync if that bites.
 const load = () => { try { return JSON.parse(localStorage.lpSaved || '[]'); } catch { return []; } };
 function store(list) {
-  try { localStorage.lpSaved = JSON.stringify(list); } catch { alert('Tallennus epäonnistui (yksityinen selaus?)'); }
+  try { localStorage.lpSaved = JSON.stringify(list); } catch { alert(L('Tallennus epäonnistui (yksityinen selaus?)', 'Saving failed (private browsing?)')); }
   $('savedN').textContent = list.length || '';
 }
 store(load());
 
 async function saveAlbum(a) {
-  const price = prompt(`Hinta kaupassa (€): ${a.artist.name} – ${a.title}`, '');
+  const price = prompt(`${L('Hinta kaupassa', 'Shop price')} (€): ${a.artist.name} – ${a.title}`, '');
   if (price === null) return;
   const btn = $('save'), discogs = $('discogs');
-  btn.disabled = true; btn.lastChild.textContent = 'Haetaan sijaintia…';
+  btn.disabled = true; btn.lastChild.textContent = L('Haetaan sijaintia…', 'Getting location…');
   const pos = await new Promise(ok => navigator.geolocation
     ? navigator.geolocation.getCurrentPosition(p => ok(p.coords), () => ok(null), { timeout: 10000, maximumAge: 60000 })
     : ok(null));
@@ -219,7 +228,7 @@ async function saveAlbum(a) {
   list.unshift({ id: a.id, title: a.title, artist: a.artist.name, cover: a.cover_medium, price: price.replace(/[€\s]/g, ''),
     discogs: discogs.href, lat: pos?.latitude, lng: pos?.longitude, date: new Date().toISOString() });
   store(list);
-  btn.classList.add('done'); btn.innerHTML = ic('check') + (pos ? 'Tallennettu' : 'Tallennettu (ilman sijaintia)');
+  btn.classList.add('done'); btn.innerHTML = ic('check') + (pos ? L('Tallennettu', 'Saved') : L('Tallennettu (ilman sijaintia)', 'Saved (no location)'));
 }
 
 $('savedBtn').onclick = showSaved;
@@ -227,16 +236,16 @@ $('navSearch').onclick = () => { scrollTo({ top: 0, behavior: 'smooth' }); $('q'
 function showSaved() {
   const list = load();
   player.pause(); cur = -1; $('hits').innerHTML = '';
-  $('msg').textContent = list.length ? '' : 'Ei tallennettuja levyjä.';
-  $('album').innerHTML = `<h2>Tallennetut levyt</h2><ul class="saved">${list.map((r, i) => `<li data-i="${i}">
-    <img src="${r.cover}"><span class="t"><b>${esc(r.title)}</b><br><small>${esc(r.artist)}${r.price ? ` · ${esc(r.price)} €` : ''} · ${new Date(r.date).toLocaleDateString('fi-FI')}</small></span>
-    ${r.lat != null ? `<a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" aria-label="Sijainti kartalla">${ic('pin')}</a>` : ''}
-    <button data-del="${i}" aria-label="Poista">${ic('x')}</button></li>`).join('')}</ul>`;
+  $('msg').textContent = list.length ? '' : L('Ei tallennettuja levyjä.', 'No saved records.');
+  $('album').innerHTML = `<h2>${L('Tallennetut levyt', 'Saved records')}</h2><ul class="saved">${list.map((r, i) => `<li data-i="${i}">
+    <img src="${r.cover}"><span class="t"><b>${esc(r.title)}</b><br><small>${esc(r.artist)}${r.price ? ` · ${esc(r.price)} €` : ''} · ${new Date(r.date).toLocaleDateString()}</small></span>
+    ${r.lat != null ? `<a href="https://www.google.com/maps?q=${r.lat},${r.lng}" target="_blank" aria-label="${L('Sijainti kartalla', 'Location on map')}">${ic('pin')}</a>` : ''}
+    <button data-del="${i}" aria-label="${L('Poista', 'Delete')}">${ic('x')}</button></li>`).join('')}</ul>`;
   $('album').querySelector('ul').onclick = e => {
     if (e.target.closest('a')) return;
     const del = e.target.closest('[data-del]');
     if (del) {
-      if (confirm('Poistetaanko levy listalta?')) { list.splice(+del.dataset.del, 1); store(list); showSaved(); }
+      if (confirm(L('Poistetaanko levy listalta?', 'Remove this record from the list?'))) { list.splice(+del.dataset.del, 1); store(list); showSaved(); }
       return;
     }
     const li = e.target.closest('li');
@@ -260,8 +269,8 @@ async function showAlbum(id, release) {
   const discogs = 'https://www.discogs.com' + (release || '/search/?type=all&q=' + encodeURIComponent(`${a.artist.name} ${title}`));
   $('album').innerHTML = `
     <div class="head"><img src="${a.cover_big}"><div>
-      <small>Albumi</small><h2>${esc(a.title)}</h2><p><b>${esc(a.artist.name)}</b> · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} kappaletta</p></div></div>
-    <div class="ctl"><button id="save" class="ghost">${ic('plus')}Tallenna</button><a href="${spotify}" target="_blank">Spotify ↗</a><a id="discogs" href="${discogs}" target="_blank">Discogs (hinnat) ↗</a><button id="playAll" class="play" aria-label="Toista">${ic('play')}</button></div>
+      <small>${L('Albumi', 'Album')}</small><h2>${esc(a.title)}</h2><p><b>${esc(a.artist.name)}</b> · ${a.release_date?.slice(0, 4) || ''} · ${a.nb_tracks} ${L('kappaletta', 'tracks')}</p></div></div>
+    <div class="ctl"><button id="save" class="ghost">${ic('plus')}${L('Tallenna', 'Save')}</button><a href="${spotify}" target="_blank">Spotify ↗</a><a id="discogs" href="${discogs}" target="_blank">Discogs (${L('hinnat', 'prices')}) ↗</a><button id="playAll" class="play" aria-label="${L('Toista', 'Play')}">${ic('play')}</button></div>
     <ol>${tracks.map((t, i) => `<li data-i="${i}"><span class="n">${i + 1}</span><span class="t">${esc(t.title)}<small>${esc(t.artist.name)}</small></span><span class="d">${mmss(t.duration)}</span></li>`).join('')}</ol>`;
   $('album').querySelector('ol').onclick = e => { const li = e.target.closest('li'); li && play(+li.dataset.i); };
   $('save').onclick = () => saveAlbum(a);
@@ -273,11 +282,29 @@ async function showAlbum(id, release) {
     if (m) link.href = 'https://www.discogs.com' + m.uri;
   } else {
     // Price only for the exact scanned pressing; a master's lowest price mixes in CDs etc. and misleads.
-    const st = await get(`https://api.discogs.com/marketplace/stats/${release.match(/\d+/)[0]}?curr_abbr=EUR`);
-    if (st.num_for_sale != null) link.textContent = st.lowest_price
-      ? `Discogs: ${st.num_for_sale} myynnissä, alkaen ${st.lowest_price.value.toLocaleString('fi-FI', { style: 'currency', currency: st.lowest_price.currency })} ↗`
-      : 'Discogs: ei myynnissä ↗';
+    priceLink(link, release);
   }
+}
+
+async function priceLink(link, release) {
+  const st = await get(`https://api.discogs.com/marketplace/stats/${release.match(/\d+/)[0]}?curr_abbr=EUR`);
+  if (st.num_for_sale != null) link.textContent = st.lowest_price
+    ? `Discogs: ${st.num_for_sale} ${L('myynnissä, alkaen', 'for sale, from')} ${st.lowest_price.value.toLocaleString(undefined, { style: 'currency', currency: st.lowest_price.currency })} ↗`
+    : L('Discogs: ei myynnissä ↗', 'Discogs: none for sale ↗');
+}
+
+// Deezer lacks most old/local pressings: show the Discogs match (no previews) rather than nothing.
+async function discogsOnly(q) {
+  const hits = (await get(`https://api.discogs.com/database/search?type=release&per_page=10&q=${encodeURIComponent(q)}`)).results || [];
+  const r = hits.find(h => h.format?.includes('Vinyl')) || hits[0];
+  if (!r) return $('msg').textContent = L('Ei löytynyt.', 'Nothing found.');
+  $('msg').textContent = L('Ei kuunneltavissa Deezerissä.', 'No previews on Deezer.');
+  const [artist, title] = r.title.split(' - ');
+  $('album').innerHTML = `
+    <div class="head">${r.cover_image ? `<img src="${r.cover_image}">` : ''}<div>
+      <small>Discogs</small><h2>${esc(title || r.title)}</h2><p><b>${esc(artist)}</b> · ${r.year || ''} · ${esc((r.format || []).join(', '))}</p></div></div>
+    <div class="ctl"><a id="discogs" href="https://www.discogs.com${r.uri}" target="_blank">Discogs (${L('hinnat', 'prices')}) ↗</a></div>`;
+  priceLink($('discogs'), r.uri);
 }
 
 function play(i) {
